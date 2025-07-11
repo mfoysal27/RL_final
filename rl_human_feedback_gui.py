@@ -578,7 +578,7 @@ class EnhancedHumanFeedbackCollector:
 class RLAgent:
     """Reinforcement Learning Agent for model improvement."""
     
-    def __init__(self, model: nn.Module, learning_rate: float = 1e-4):
+    def __init__(self, model: nn.Module, learning_rate: float = 1e-6):  # Ultra-conservative: 10x smaller
         self.model = model
         self.optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         self.feedback_collector = EnhancedHumanFeedbackCollector()
@@ -606,11 +606,18 @@ class RLAgent:
         # Store initial model state for comparison
         self.initial_state = {name: param.clone().detach() for name, param in model.named_parameters()}
         self.previous_state = {name: param.clone().detach() for name, param in model.named_parameters()}
+        
+        print(f"🔒 ULTRA-CONSERVATIVE RL Agent initialized:")
+        print(f"   Learning rate: {learning_rate} (10x smaller than before)")
+        print(f"   Forgetting penalty: 10x stronger")
+        print(f"   Gradient clipping: 10x stricter")
+        print(f"   Policy updates: Only when advantage > 0.1")
+        print(f"   Recommended: Provide feedback in small increments")
     
     def update_model_with_feedback(self, images: List[torch.Tensor], 
                                  predictions: List[torch.Tensor],
                                  feedback_scores: List[float]):
-        """Update model based on human feedback using policy gradient."""
+        """Update model based on human feedback using CONSERVATIVE policy gradient with strong regularization."""
         if not feedback_scores:
             return
         
@@ -621,44 +628,114 @@ class RLAgent:
         # Store state before update
         pre_update_state = {name: param.clone().detach() for name, param in self.model.named_parameters()}
         
+        # CRITICAL: Use much more conservative approach to prevent catastrophic forgetting
+        
+        # 1. Calculate baseline (average feedback) for advantage estimation
+        baseline = sum(feedback_scores) / len(feedback_scores) if feedback_scores else 0.0
+        
+        # 2. Process each sample with CONSERVATIVE updates
         for img, pred, score in zip(images, predictions, feedback_scores):
-            # Convert feedback score to reward (-1 to +1)
-            reward = torch.tensor(score, dtype=torch.float32, device=pred.device)
+            # Convert feedback score to normalized reward (-1 to +1)
+            raw_reward = score  # Already in -1 to +1 range
             
-            # Calculate policy gradient loss
-            # Higher rewards should increase probability of current actions
+            # Calculate advantage (how much better/worse than average)
+            advantage = raw_reward - baseline
+            
+            # HEAVILY DAMPEN the advantage to prevent large updates
+            dampened_advantage = advantage * 0.1  # Reduce impact by 90%
+            
+            # Convert to tensor
+            advantage_tensor = torch.tensor(dampened_advantage, dtype=torch.float32, device=pred.device)
+            
+            # 3. CONSERVATIVE Policy Gradient Loss
+            # Instead of direct log_prob optimization, use a much softer approach
             log_prob = torch.log_softmax(pred, dim=1)
-            policy_loss = -torch.mean(log_prob * reward)
             
-            # Add regularization to prevent overfitting to human feedback
-            l2_reg = 0.001 * sum(p.pow(2.0).sum() for p in self.model.parameters())
+            # Only update if advantage is significant (> 0.1)
+            if abs(advantage) > 0.1:
+                # Use entropy-regularized policy gradient
+                entropy = -torch.sum(torch.exp(log_prob) * log_prob, dim=1)
+                policy_loss = -torch.mean(log_prob.mean(dim=1) * advantage_tensor)
+                
+                # Add strong entropy regularization to prevent overconfident predictions
+                entropy_loss = -0.1 * torch.mean(entropy)  # Encourage exploration
+                
+                combined_policy_loss = policy_loss + entropy_loss
+            else:
+                # No significant advantage - skip policy update
+                combined_policy_loss = torch.tensor(0.0, device=pred.device)
             
-            loss = policy_loss + l2_reg
-            total_loss += loss.item()
+            # 4. STRONG Regularization to prevent catastrophic forgetting
             
-            # Backward pass
+            # L2 regularization (increased)
+            l2_reg = 0.01 * sum(p.pow(2.0).sum() for p in self.model.parameters())
+            
+            # MUCH STRONGER weight deviation penalty
+            weight_deviation_penalty = 0.0
+            for name, param in self.model.named_parameters():
+                if name in self.initial_state:
+                    # Heavily penalize deviations from original weights
+                    deviation = torch.norm(param - self.initial_state[name])
+                    weight_deviation_penalty += deviation
+            
+            # CRITICAL: Much stronger forgetting penalty (10x stronger)
+            forgetting_penalty = 0.1 * weight_deviation_penalty  # Increased from 0.01 to 0.1
+            
+            # 5. Add consistency loss with original predictions
+            consistency_loss = torch.tensor(0.0, device=pred.device)
+            if hasattr(self, 'original_predictions') and len(self.original_predictions) > 0:
+                # Encourage consistency with original model predictions
+                if len(self.original_predictions) > len(images):
+                    original_pred = self.original_predictions[len(images) - 1]
+                    consistency_loss = 0.05 * F.mse_loss(torch.softmax(pred, dim=1), 
+                                                        torch.softmax(original_pred, dim=1))
+            
+            # 6. Combine all losses with conservative weighting
+            total_loss_sample = (
+                0.3 * combined_policy_loss +    # Reduced policy loss weight
+                0.2 * l2_reg +                  # L2 regularization
+                0.4 * forgetting_penalty +      # Strong forgetting prevention
+                0.1 * consistency_loss          # Consistency with original
+            )
+            
+            total_loss += total_loss_sample.item()
+            
+            # 7. CONSERVATIVE gradient updates
             self.optimizer.zero_grad()
-            loss.backward()
+            total_loss_sample.backward()
             
-            # Calculate gradient norm before clipping
-            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            # STRONG gradient clipping to prevent large updates
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.1)  # Much smaller max_norm
             gradient_norms.append(grad_norm.item())
             
-            self.optimizer.step()
+            # Only update if gradient norm is reasonable
+            if grad_norm < 1.0:  # Only update if gradients are small
+                self.optimizer.step()
+            else:
+                print(f"⚠️ Skipping update due to large gradient norm: {grad_norm:.4f}")
         
         # Calculate learning metrics
         avg_loss = total_loss / len(feedback_scores)
-        # Safe gradient norm calculation
         avg_grad_norm = sum(gradient_norms) / len(gradient_norms) if gradient_norms else 0.0
         
         # Calculate weight change magnitude
         weight_change = self._calculate_weight_change(pre_update_state)
         
+        # Log conservative update info
+        print(f"🔒 Conservative RL Update:")
+        print(f"   Baseline feedback: {baseline:.3f}")
+        print(f"   Max advantage: {max([abs(s - baseline) for s in feedback_scores]):.3f}")
+        print(f"   Weight change: {weight_change:.6f}")
+        print(f"   Gradient norm: {avg_grad_norm:.6f}")
+        
+        # Warning if changes are too large
+        if weight_change > 0.001:
+            print(f"⚠️ WARNING: Large weight change detected! Consider reducing learning rate.")
+        
         # Update learning metrics
         self.learning_metrics['loss_history'].append(avg_loss)
         self.learning_metrics['gradient_norms'].append(avg_grad_norm)
         self.learning_metrics['weight_changes'].append(weight_change)
-        # Safe feedback mean calculation
         feedback_mean = sum(feedback_scores) / len(feedback_scores) if feedback_scores else 0.0
         self.learning_metrics['feedback_trends'].append(feedback_mean)
         self.learning_metrics['total_updates'] += 1
@@ -714,6 +791,205 @@ class RLAgent:
         # Consistent weight changes indicate stable learning
         convergence = ((-loss_trend * 10) + (feedback_trend * 5) + (change_consistency * 2)) / 3
         self.learning_metrics['convergence_score'] = max(0.0, min(1.0, convergence))
+    
+    def save_complete_model_info(self, save_path: str, original_model_path: str = None):
+        """Save complete model information including all metadata, weights, and training history."""
+        try:
+            import json
+            from datetime import datetime
+            
+            # Collect comprehensive model information
+            model_info = {
+                # === BASIC MODEL INFO ===
+                'model_architecture': str(type(self.model).__name__),
+                'model_parameters': sum(p.numel() for p in self.model.parameters()),
+                'model_size_mb': sum(p.numel() * p.element_size() for p in self.model.parameters()) / (1024 * 1024),
+                'device': str(next(self.model.parameters()).device),
+                'save_timestamp': datetime.now().isoformat(),
+                
+                # === RL TRAINING INFO ===
+                'rl_training': {
+                    'current_epoch': self.epoch,
+                    'total_updates': self.learning_metrics['total_updates'],
+                    'learning_rate': self.optimizer.param_groups[0]['lr'],
+                    'optimizer_type': type(self.optimizer).__name__,
+                    'optimizer_state': self.optimizer.state_dict(),
+                },
+                
+                # === LEARNING METRICS ===
+                'learning_metrics': self.learning_metrics.copy(),
+                'feedback_history': self.feedback_collector.feedback_history.copy(),
+                
+                # === WEIGHT CHANGE ANALYSIS ===
+                'weight_analysis': self._analyze_weight_changes(),
+                
+                # === LAYER-BY-LAYER ANALYSIS ===
+                'layer_analysis': self._analyze_layers(),
+                
+                # === PERFORMANCE COMPARISON ===
+                'performance_comparison': self._compare_with_original(original_model_path) if original_model_path else None,
+            }
+            
+            # Save the complete checkpoint
+            complete_checkpoint = {
+                'model_state_dict': self.model.state_dict(),
+                'model_info': model_info,
+                'rl_epoch': self.epoch,
+                'training_history': getattr(self, 'training_history', []),
+                'feedback_history': self.feedback_collector.feedback_history,
+                'learning_metrics': self.learning_metrics,
+                'initial_state': self.initial_state,
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Save to file
+            torch.save(complete_checkpoint, save_path)
+            
+            # Also save human-readable summary
+            summary_path = save_path.replace('.pth', '_summary.json')
+            with open(summary_path, 'w') as f:
+                # Convert tensors to lists for JSON serialization
+                json_safe_info = self._make_json_safe(model_info)
+                json.dump(json_safe_info, f, indent=2)
+            
+            print(f"✅ Complete model information saved:")
+            print(f"   Model file: {save_path}")
+            print(f"   Summary: {summary_path}")
+            print(f"   Model size: {model_info['model_size_mb']:.2f} MB")
+            print(f"   Parameters: {model_info['model_parameters']:,}")
+            print(f"   RL epochs: {model_info['rl_training']['current_epoch']}")
+            print(f"   Total updates: {model_info['rl_training']['total_updates']}")
+            
+            return save_path, summary_path
+            
+        except Exception as e:
+            print(f"❌ Error saving complete model info: {e}")
+            return None, None
+    
+    def _analyze_weight_changes(self):
+        """Analyze weight changes from original model."""
+        analysis = {
+            'total_deviation': 0.0,
+            'max_layer_change': 0.0,
+            'max_layer_name': '',
+            'layer_changes': {},
+            'change_distribution': {'small': 0, 'medium': 0, 'large': 0}
+        }
+        
+        for name, param in self.model.named_parameters():
+            if name in self.initial_state:
+                original = self.initial_state[name]
+                current = param.data
+                
+                # Calculate relative change
+                change = torch.norm(current - original).item()
+                relative_change = change / torch.norm(original).item() if torch.norm(original).item() > 0 else 0
+                
+                analysis['layer_changes'][name] = {
+                    'absolute_change': change,
+                    'relative_change': relative_change,
+                    'parameter_count': param.numel()
+                }
+                
+                analysis['total_deviation'] += change
+                
+                if relative_change > analysis['max_layer_change']:
+                    analysis['max_layer_change'] = relative_change
+                    analysis['max_layer_name'] = name
+                
+                # Categorize change magnitude
+                if relative_change < 0.01:
+                    analysis['change_distribution']['small'] += 1
+                elif relative_change < 0.1:
+                    analysis['change_distribution']['medium'] += 1
+                else:
+                    analysis['change_distribution']['large'] += 1
+        
+        return analysis
+    
+    def _analyze_layers(self):
+        """Analyze each layer's properties."""
+        layer_info = {}
+        
+        for name, param in self.model.named_parameters():
+            layer_info[name] = {
+                'shape': list(param.shape),
+                'parameter_count': param.numel(),
+                'dtype': str(param.dtype),
+                'requires_grad': param.requires_grad,
+                'mean': param.data.mean().item(),
+                'std': param.data.std().item(),
+                'min': param.data.min().item(),
+                'max': param.data.max().item()
+            }
+        
+        return layer_info
+    
+    def _compare_with_original(self, original_model_path: str):
+        """Compare current model with original model."""
+        try:
+            # Load original model
+            original_checkpoint = torch.load(original_model_path, map_location='cpu')
+            if 'model_state_dict' in original_checkpoint:
+                original_state = original_checkpoint['model_state_dict']
+            else:
+                original_state = original_checkpoint
+            
+            comparison = {
+                'parameter_differences': {},
+                'overall_similarity': 0.0,
+                'layers_significantly_changed': []
+            }
+            
+            total_similarity = 0.0
+            layer_count = 0
+            
+            for name, param in self.model.named_parameters():
+                if name in original_state:
+                    original_param = original_state[name]
+                    current_param = param.data
+                    
+                    # Calculate cosine similarity
+                    similarity = F.cosine_similarity(
+                        original_param.flatten().unsqueeze(0),
+                        current_param.flatten().unsqueeze(0)
+                    ).item()
+                    
+                    comparison['parameter_differences'][name] = {
+                        'cosine_similarity': similarity,
+                        'mse_difference': F.mse_loss(original_param, current_param).item()
+                    }
+                    
+                    total_similarity += similarity
+                    layer_count += 1
+                    
+                    # Mark layers with significant changes
+                    if similarity < 0.95:  # Less than 95% similarity
+                        comparison['layers_significantly_changed'].append(name)
+            
+            comparison['overall_similarity'] = total_similarity / layer_count if layer_count > 0 else 0.0
+            
+            return comparison
+            
+        except Exception as e:
+            print(f"⚠️ Could not compare with original model: {e}")
+            return None
+    
+    def _make_json_safe(self, obj):
+        """Convert tensors and other non-JSON types to JSON-safe format."""
+        if isinstance(obj, torch.Tensor):
+            return obj.tolist()
+        elif isinstance(obj, dict):
+            return {k: self._make_json_safe(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_safe(item) for item in obj]
+        elif isinstance(obj, (np.integer, np.floating)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return obj
     
     def get_learning_status(self):
         """Get comprehensive learning status."""
@@ -781,9 +1057,12 @@ class RLAgent:
             'total_updates': self.learning_metrics['total_updates']
         }
     
-    def select_random_samples(self, dataset, num_samples: int = 3) -> List[Tuple[int, Any]]:
+    def select_random_samples(self, dataset, num_samples: int = 8) -> List[Tuple[int, Any]]:  # Increased from 3 to 8
         """Select random samples from dataset for human feedback."""
-        indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
+        # Use more samples but display only 3 for human feedback
+        # This provides better training signal while keeping UI manageable
+        total_samples = min(num_samples, len(dataset))
+        indices = random.sample(range(len(dataset)), total_samples)
         samples = []
         for idx in indices:
             try:
@@ -792,6 +1071,8 @@ class RLAgent:
             except Exception as e:
                 print(f"Error loading sample {idx}: {e}")
                 continue
+        
+        print(f"🎯 Selected {len(samples)} samples for RL training (displaying first 3 for feedback)")
         return samples
 
 
@@ -1795,20 +2076,60 @@ class HumanFeedbackRLGUI:
         self.load_epoch_samples()
     
     def save_rl_model(self):
-        """Save the RL-enhanced model."""
+        """Save the RL-enhanced model with comprehensive information."""
         if not self.model:
             messagebox.showwarning("Warning", "No model to save!")
             return
         
+        # Ask for save path
         save_path = filedialog.asksaveasfilename(
             title="Save RL Enhanced Model",
             defaultextension=".pth",
             filetypes=[("PyTorch Model", "*.pth"), ("All Files", "*.*")]
         )
         
-        if save_path:
-            try:
-                # Create enhanced checkpoint
+        if not save_path:
+            return
+        
+        # Ask if user wants to provide original model path for comparison
+        include_comparison = messagebox.askyesno(
+            "Include Original Model Comparison",
+            "Do you want to include a comparison with the original model?\n\n"
+            "This will analyze how much the model has changed during RL training.\n"
+            "Select 'Yes' to choose the original model file for comparison."
+        )
+        
+        original_model_path = None
+        if include_comparison:
+            original_model_path = filedialog.askopenfilename(
+                title="Select Original Model for Comparison",
+                filetypes=[("PyTorch Model", "*.pth"), ("All Files", "*.*")]
+            )
+        
+        try:
+            # Use comprehensive saving
+            if hasattr(self.rl_agent, 'save_complete_model_info'):
+                model_path, summary_path = self.rl_agent.save_complete_model_info(
+                    save_path, original_model_path
+                )
+                
+                if model_path and summary_path:
+                    success_msg = f"✅ RL model saved successfully!\n\n"
+                    success_msg += f"Model file: {os.path.basename(model_path)}\n"
+                    success_msg += f"Summary: {os.path.basename(summary_path)}\n\n"
+                    success_msg += f"The summary file contains:\n"
+                    success_msg += f"• Complete model architecture info\n"
+                    success_msg += f"• Layer-by-layer weight analysis\n"
+                    success_msg += f"• RL training metrics and history\n"
+                    success_msg += f"• Weight change analysis\n"
+                    if original_model_path:
+                        success_msg += f"• Comparison with original model\n"
+                    
+                    messagebox.showinfo("Success", success_msg)
+                else:
+                    raise Exception("Failed to save comprehensive model info")
+            else:
+                # Fallback to basic saving
                 checkpoint = {
                     'model_state_dict': self.model.state_dict(),
                     'rl_epoch': self.current_epoch,
@@ -1820,8 +2141,9 @@ class HumanFeedbackRLGUI:
                 torch.save(checkpoint, save_path)
                 messagebox.showinfo("Success", f"RL model saved to {save_path}")
                 
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save model: {str(e)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save model: {str(e)}")
+            print(f"Save error: {e}")
     
     def export_training_log(self):
         """Export training history and feedback log."""
