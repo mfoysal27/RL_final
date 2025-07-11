@@ -801,7 +801,35 @@ class HumanFeedbackRLGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Human Feedback RL - Gut Tissue Segmentation")
-        self.root.geometry("1400x700")
+        
+        # Get screen dimensions for relative sizing
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Use 85% of screen width and 80% of screen height (more responsive)
+        window_width = int(screen_width * 0.85)
+        window_height = int(screen_height * 0.80)
+        
+        # Center the window on screen
+        pos_x = (screen_width - window_width) // 2
+        pos_y = (screen_height - window_height) // 2
+        
+        # Set geometry with relative size and centered position
+        self.root.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
+        
+        # Set minimum window size (prevents it from becoming too small)
+        min_width = max(1200, int(screen_width * 0.6))  # At least 60% of screen or 1200px
+        min_height = max(700, int(screen_height * 0.5))  # At least 50% of screen or 700px
+        self.root.minsize(min_width, min_height)
+        
+        # Make window resizable
+        self.root.resizable(True, True)
+        
+        print(f"🖥️ GUI Window Configuration:")
+        print(f"   Screen size: {screen_width}x{screen_height}")
+        print(f"   Window size: {window_width}x{window_height} ({window_width/screen_width:.1%}x{window_height/screen_height:.1%})")
+        print(f"   Window position: +{pos_x}+{pos_y} (centered)")
+        print(f"   Minimum size: {min_width}x{min_height}")
         
         # State variables
         self.model = None
@@ -825,20 +853,34 @@ class HumanFeedbackRLGUI:
         self.setup_gui()
         
     def setup_gui(self):
-        """Setup the main GUI interface."""
-        # Main container
+        """Setup the main GUI interface with responsive layout."""
+        # Main container with responsive padding
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Configure grid weights
+        # Configure root window for responsive resizing
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
         
-        # Title
+        # Configure main frame for responsive layout
+        main_frame.columnconfigure(0, weight=1)  # Left content
+        main_frame.columnconfigure(1, weight=1)  # Center content
+        main_frame.columnconfigure(2, weight=1)  # Right content
+        
+        # Configure row weights for proper vertical distribution
+        main_frame.rowconfigure(0, weight=0)  # Title (fixed height)
+        main_frame.rowconfigure(1, weight=0)  # Control panel (fixed height)
+        main_frame.rowconfigure(2, weight=0)  # Status panel (fixed height)
+        main_frame.rowconfigure(3, weight=1)  # Feedback area (expandable)
+        main_frame.rowconfigure(4, weight=0)  # Opacity control (fixed height)
+        main_frame.rowconfigure(5, weight=0)  # Progress controls (fixed height)
+        
+        # Title with responsive font size
+        screen_width = self.root.winfo_screenwidth()
+        title_font_size = max(14, min(20, int(screen_width / 80)))  # Scale font with screen size
         title_label = ttk.Label(main_frame, text="Human Feedback RL Training", 
-                               font=('Arial', 16, 'bold'))
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+                               font=('Arial', title_font_size, 'bold'))
+        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20), sticky=(tk.W, tk.E))
         
         # Control panel
         self.setup_control_panel(main_frame)
@@ -846,7 +888,7 @@ class HumanFeedbackRLGUI:
         # Training status
         self.setup_status_panel(main_frame)
         
-        # Image feedback area
+        # Image feedback area (main expandable area)
         self.setup_feedback_area(main_frame)
         
         # Opacity control
@@ -943,89 +985,124 @@ class HumanFeedbackRLGUI:
         self.setup_color_legend(feedback_frame)
     
     def setup_image_feedback_pair(self, parent, col_idx):
-        """Setup individual image with dual feedback sliders."""
-        # Image container
+        """Setup individual image with dual feedback sliders using responsive sizing."""
+        # Image container with responsive configuration
         image_frame = ttk.Frame(parent)
         image_frame.grid(row=0, column=col_idx, padx=10, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Image label
+        # Configure image frame for responsive resizing
+        image_frame.columnconfigure(0, weight=1)
+        image_frame.rowconfigure(0, weight=1)  # Image area (expandable)
+        image_frame.rowconfigure(1, weight=0)  # Class slider (fixed height)
+        image_frame.rowconfigure(2, weight=0)  # Border slider (fixed height) 
+        image_frame.rowconfigure(3, weight=0)  # Guidance (fixed height)
+        
+        # Calculate responsive image label width based on screen size
+        screen_width = self.root.winfo_screenwidth()
+        # Scale image width: larger screens get wider images, but with reasonable limits
+        base_image_width = max(20, min(35, int(screen_width / 60)))
+        
+        # Image label with responsive sizing
         img_label = ttk.Label(image_frame, text=f"Image {col_idx + 1}", 
-                             background="lightgray", width=25)
-        img_label.grid(row=0, column=0, pady=(0, 10))
+                             background="lightgray", width=base_image_width)
+        img_label.grid(row=0, column=0, pady=(0, 10), sticky=(tk.W, tk.E))
         self.image_labels.append(img_label)
         
         # === CLASS IDENTIFICATION SLIDER ===
         class_frame = ttk.LabelFrame(image_frame, text="🎨 Class Identification", padding="5")
         class_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
         
-        # Class feedback slider
+        # Configure class frame for responsive layout
+        class_frame.columnconfigure(0, weight=1)
+        
+        # Class feedback slider with responsive length
         class_slider_frame = ttk.Frame(class_frame)
         class_slider_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        class_slider_frame.columnconfigure(1, weight=1)  # Slider column expands
         
-        ttk.Label(class_slider_frame, text="Poor").grid(row=0, column=0, padx=(0, 5))
+        ttk.Label(class_slider_frame, text="Poor").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
+        
+        # Calculate responsive slider length
+        slider_length = max(150, min(250, int(screen_width / 8)))
         
         class_slider = tk.Scale(class_slider_frame, from_=-100, to=100, orient=tk.HORIZONTAL,
-                               length=180, resolution=1, 
+                               length=slider_length, resolution=1, 
                                bg="#E3F2FD", troughcolor="#1976D2")  # Blue theme
         class_slider.set(0)
-        class_slider.grid(row=0, column=1, padx=2)
+        class_slider.grid(row=0, column=1, padx=2, sticky=(tk.W, tk.E))
         self.class_feedback_sliders.append(class_slider)
         
-        ttk.Label(class_slider_frame, text="Perfect").grid(row=0, column=2, padx=(5, 0))
+        ttk.Label(class_slider_frame, text="Perfect").grid(row=0, column=2, padx=(5, 0), sticky=tk.E)
         
-        # Class description
+        # Class description with responsive font
+        desc_font_size = max(7, min(10, int(screen_width / 180)))
         class_desc = ttk.Label(class_frame, 
                               text="Rate tissue type accuracy (villi, glands, muscle, etc.)",
-                              font=('Arial', 8), foreground="blue")
-        class_desc.grid(row=1, column=0, pady=(2, 0))
+                              font=('Arial', desc_font_size), foreground="blue")
+        class_desc.grid(row=1, column=0, pady=(2, 0), sticky=(tk.W, tk.E))
         
         # === BORDER/REGION IDENTIFICATION SLIDER ===
         border_frame = ttk.LabelFrame(image_frame, text="🎯 Border & Region Accuracy", padding="5")
         border_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(5, 0))
         
-        # Border feedback slider
+        # Configure border frame for responsive layout
+        border_frame.columnconfigure(0, weight=1)
+        
+        # Border feedback slider with responsive length
         border_slider_frame = ttk.Frame(border_frame)
         border_slider_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        border_slider_frame.columnconfigure(1, weight=1)  # Slider column expands
         
-        ttk.Label(border_slider_frame, text="Fuzzy").grid(row=0, column=0, padx=(0, 5))
+        ttk.Label(border_slider_frame, text="Fuzzy").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
         
         border_slider = tk.Scale(border_slider_frame, from_=-100, to=100, orient=tk.HORIZONTAL,
-                                length=180, resolution=1,
+                                length=slider_length, resolution=1,
                                 bg="#E8F5E8", troughcolor="#388E3C")  # Green theme
         border_slider.set(0)
-        border_slider.grid(row=0, column=1, padx=2)
+        border_slider.grid(row=0, column=1, padx=2, sticky=(tk.W, tk.E))
         self.border_feedback_sliders.append(border_slider)
         
-        ttk.Label(border_slider_frame, text="Sharp").grid(row=0, column=2, padx=(5, 0))
+        ttk.Label(border_slider_frame, text="Sharp").grid(row=0, column=2, padx=(5, 0), sticky=tk.E)
         
-        # Border description
+        # Border description with responsive font
         border_desc = ttk.Label(border_frame, 
                                text="Rate boundary sharpness and region completeness",
-                               font=('Arial', 8), foreground="green")
-        border_desc.grid(row=1, column=0, pady=(2, 0))
+                               font=('Arial', desc_font_size), foreground="green")
+        border_desc.grid(row=1, column=0, pady=(2, 0), sticky=(tk.W, tk.E))
         
         # === FEEDBACK GUIDANCE ===
         guidance_frame = ttk.Frame(image_frame)
-        guidance_frame.grid(row=3, column=0, pady=(10, 0))
+        guidance_frame.grid(row=3, column=0, pady=(10, 0), sticky=(tk.W, tk.E))
+        guidance_frame.columnconfigure(0, weight=1)
         
         guidance_text = """
 🎨 Class: Are tissues correctly identified?
 🎯 Border: Are boundaries clean and complete?
         """
         guidance_label = ttk.Label(guidance_frame, text=guidance_text, 
-                                  font=('Arial', 7), justify="center")
-        guidance_label.grid(row=0, column=0)
+                                  font=('Arial', desc_font_size), justify="center")
+        guidance_label.grid(row=0, column=0, sticky=(tk.W, tk.E))
     
     def setup_color_legend(self, parent):
-        """Setup color legend showing tissue classes and their colors."""
+        """Setup color legend showing tissue classes and their colors with responsive sizing."""
         legend_frame = ttk.LabelFrame(parent, text="Tissue Color Legend", padding="5")
-        legend_frame.grid(row=0, column=3, padx=10, pady=5, sticky=(tk.N, tk.S))
+        legend_frame.grid(row=0, column=3, padx=10, pady=5, sticky=(tk.N, tk.S, tk.E, tk.W))
+        
+        # Configure legend frame for responsive layout
+        legend_frame.columnconfigure(0, weight=1)
+        legend_frame.rowconfigure(0, weight=1)
+        
+        # Calculate responsive canvas size
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        canvas_width = max(180, min(280, int(screen_width / 8)))
+        canvas_height = max(250, min(400, int(screen_height / 3)))
         
         # Use globally available functions
         num_classes = get_num_tissue_classes()
         
         # Create scrollable frame for legend
-        canvas = tk.Canvas(legend_frame, width=200, height=300)
+        canvas = tk.Canvas(legend_frame, width=canvas_width, height=canvas_height)
         scrollbar = ttk.Scrollbar(legend_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -1037,6 +1114,9 @@ class HumanFeedbackRLGUI:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
+        # Calculate responsive font size for legend
+        legend_font_size = max(7, min(10, int(screen_width / 200)))
+        
         # Add tissue classes with colors
         for class_id in range(min(15, num_classes)):  # Limit to prevent UI overflow
             color = get_tissue_color(class_id)
@@ -1046,42 +1126,50 @@ class HumanFeedbackRLGUI:
             class_frame = ttk.Frame(scrollable_frame)
             class_frame.pack(fill=tk.X, pady=1)
             
-            # Color swatch
+            # Color swatch with responsive size
+            swatch_size = max(2, min(4, int(screen_width / 400)))
             color_label = tk.Label(class_frame, 
                                  text="  ", 
                                  bg=f"#{color[0]:02x}{color[1]:02x}{color[2]:02x}",
-                                 width=3, height=1)
+                                 width=swatch_size, height=1)
             color_label.pack(side=tk.LEFT, padx=(0, 5))
             
-            # Class name
+            # Class name with responsive font
             name_label = ttk.Label(class_frame, 
                                  text=f"{class_id}: {name.replace('_', ' ')}", 
-                                 font=('Arial', 8))
+                                 font=('Arial', legend_font_size))
             name_label.pack(side=tk.LEFT)
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
     
     def setup_opacity_control(self, parent):
-        """Setup opacity control slider."""
+        """Setup opacity control slider with responsive sizing."""
         opacity_frame = ttk.LabelFrame(parent, text="Opacity Control", padding="10")
-        opacity_frame.grid(row=4, column=0, columnspan=3, pady=10)
+        opacity_frame.grid(row=4, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E))
         
-        ttk.Label(opacity_frame, text="Overlay Opacity:").grid(row=0, column=0, padx=(0, 10))
-        ttk.Label(opacity_frame, text="Original").grid(row=0, column=1, padx=(0, 5))
+        # Configure opacity frame for responsive layout
+        opacity_frame.columnconfigure(2, weight=1)  # Slider column expands
         
-        # Opacity slider
+        # Calculate responsive slider length
+        screen_width = self.root.winfo_screenwidth()
+        slider_length = max(150, min(300, int(screen_width / 6)))
+        
+        ttk.Label(opacity_frame, text="Overlay Opacity:").grid(row=0, column=0, padx=(0, 10), sticky=tk.W)
+        ttk.Label(opacity_frame, text="Original").grid(row=0, column=1, padx=(0, 5), sticky=tk.W)
+        
+        # Opacity slider with responsive length
         self.opacity_slider = tk.Scale(opacity_frame, from_=0, to=1, orient=tk.HORIZONTAL,
-                                     length=200, resolution=0.01, variable=self.opacity_var,
+                                     length=slider_length, resolution=0.01, variable=self.opacity_var,
                                      command=self.on_opacity_change)
         self.opacity_slider.set(0.5)  # Default to 50% opacity
-        self.opacity_slider.grid(row=0, column=2, padx=5)
+        self.opacity_slider.grid(row=0, column=2, padx=5, sticky=(tk.W, tk.E))
         
-        ttk.Label(opacity_frame, text="Overlay").grid(row=0, column=3, padx=(5, 10))
+        ttk.Label(opacity_frame, text="Overlay").grid(row=0, column=3, padx=(5, 10), sticky=tk.W)
         
         # Refresh button
         ttk.Button(opacity_frame, text="Refresh Display", 
-                  command=self.refresh_display).grid(row=0, column=4, padx=10)
+                  command=self.refresh_display).grid(row=0, column=4, padx=10, sticky=tk.E)
     
     def on_opacity_change(self, value):
         """Handle opacity slider change."""
@@ -1174,35 +1262,53 @@ class HumanFeedbackRLGUI:
                 print(f"Model loading error: {e}")
     
     def show_model_type_dialog(self):
-        """Show dialog for user to select model type."""
+        """Show dialog for user to select model type with responsive sizing."""
+        
+        # Get screen dimensions for responsive dialog sizing
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Calculate responsive dialog size (smaller percentage than main window)
+        dialog_width = max(500, min(800, int(screen_width * 0.4)))
+        dialog_height = max(400, min(600, int(screen_height * 0.6)))
         
         # Create model selection window
         dialog = tk.Toplevel(self.root)
         dialog.title("Select Model Architecture")
-        dialog.geometry("600x500")
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
         dialog.transient(self.root)
         dialog.grab_set()
         
+        # Make dialog resizable
+        dialog.resizable(True, True)
+        dialog.minsize(400, 300)  # Set minimum size
+        
         # Center the dialog
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (500 // 2)
-        dialog.geometry(f"600x500+{x}+{y}")
+        x = (screen_width - dialog_width) // 2
+        y = (screen_height - dialog_height) // 2
+        dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        
+        # Configure dialog for responsive layout
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(2, weight=1)  # Radio button area expands
         
         # Variable to store selected model
         selected_model = tk.StringVar()
         result = {"model_type": None}
         
-        # Title
+        # Title with responsive font
+        title_font_size = max(14, min(18, int(screen_width / 100)))
         title_label = tk.Label(dialog, text="🏗️ Select Model Architecture", 
-                              font=("Arial", 16, "bold"))
-        title_label.pack(pady=10)
+                              font=("Arial", title_font_size, "bold"))
+        title_label.grid(row=0, column=0, pady=10, sticky=(tk.W, tk.E))
         
-        # Instructions
+        # Instructions with responsive font
+        instruction_font_size = max(9, min(12, int(screen_width / 140)))
         instruction_label = tk.Label(dialog, 
                                     text="Choose the architecture that matches your trained model:",
-                                    font=("Arial", 10))
-        instruction_label.pack(pady=5)
+                                    font=("Arial", instruction_font_size))
+        instruction_label.grid(row=1, column=0, pady=5, sticky=(tk.W, tk.E))
         
         # Get available models
         try:
@@ -1214,9 +1320,14 @@ class HumanFeedbackRLGUI:
                 'simple_unet': 'SimpleUNet - Basic implementation'
             }
         
-        # Create radio buttons for each model
+        # Create radio buttons for each model with responsive layout
         radio_frame = tk.Frame(dialog)
-        radio_frame.pack(pady=20, padx=20, fill="both", expand=True)
+        radio_frame.grid(row=2, column=0, pady=20, padx=20, sticky=(tk.N, tk.S, tk.E, tk.W))
+        radio_frame.columnconfigure(0, weight=1)
+        
+        # Calculate responsive wrap length for radio buttons
+        wrap_length = max(400, min(700, int(dialog_width * 0.8)))
+        radio_font_size = max(10, min(13, int(screen_width / 130)))
         
         for model_type, description in available_models.items():
             radio_btn = tk.Radiobutton(
@@ -1224,12 +1335,12 @@ class HumanFeedbackRLGUI:
                 text=f"🔹 {description}",
                 variable=selected_model,
                 value=model_type,
-                font=("Arial", 11),
-                wraplength=550,
+                font=("Arial", radio_font_size),
+                wraplength=wrap_length,
                 justify="left",
                 anchor="w"
             )
-            radio_btn.pack(anchor="w", pady=8, padx=10)
+            radio_btn.pack(anchor="w", pady=8, padx=10, fill="x")
         
         # Set default selection to unet
         if 'unet' in available_models:
@@ -1237,9 +1348,14 @@ class HumanFeedbackRLGUI:
         elif available_models:
             selected_model.set(list(available_models.keys())[0])
         
-        # Buttons
+        # Buttons with responsive sizing
         button_frame = tk.Frame(dialog)
-        button_frame.pack(pady=20)
+        button_frame.grid(row=3, column=0, pady=20, sticky=(tk.W, tk.E))
+        button_frame.columnconfigure(0, weight=1)
+        button_frame.columnconfigure(1, weight=1)
+        
+        button_font_size = max(9, min(12, int(screen_width / 150)))
+        button_width = max(10, min(15, int(screen_width / 120)))
         
         def on_ok():
             if selected_model.get():
@@ -1251,14 +1367,18 @@ class HumanFeedbackRLGUI:
             dialog.destroy()
         
         ok_btn = tk.Button(button_frame, text="✅ Load Model", command=on_ok,
-                          bg="#4CAF50", fg="white", font=("Arial", 10, "bold"),
-                          width=12)
-        ok_btn.pack(side="left", padx=10)
+                          bg="#4CAF50", fg="white", font=("Arial", button_font_size, "bold"),
+                          width=button_width)
+        ok_btn.grid(row=0, column=0, padx=10, sticky=tk.E)
         
         cancel_btn = tk.Button(button_frame, text="❌ Cancel", command=on_cancel,
-                              bg="#f44336", fg="white", font=("Arial", 10),
-                              width=12)
-        cancel_btn.pack(side="left", padx=10)
+                              bg="#f44336", fg="white", font=("Arial", button_font_size),
+                              width=button_width)
+        cancel_btn.grid(row=0, column=1, padx=10, sticky=tk.W)
+        
+        print(f"📱 Model Selection Dialog:")
+        print(f"   Dialog size: {dialog_width}x{dialog_height} ({dialog_width/screen_width:.1%}x{dialog_height/screen_height:.1%})")
+        print(f"   Position: +{x}+{y} (centered)")
         
         # Wait for user selection
         dialog.wait_window()
@@ -1816,55 +1936,93 @@ class HumanFeedbackRLGUI:
         self.dataset = DemoDataset()
     
     def show_learning_comparison(self):
-        """Show learning comparison between epochs - FIXED VERSION."""
+        """Show learning comparison between epochs with responsive window sizing."""
         if not self.training_history:
             messagebox.showwarning("Warning", "No training history to compare!")
             return
         
+        # Get screen dimensions for responsive sizing
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Calculate responsive window size (70% of screen width, 75% of screen height)
+        window_width = max(700, min(1200, int(screen_width * 0.7)))
+        window_height = max(500, min(900, int(screen_height * 0.75)))
+        
+        # Center the window
+        pos_x = (screen_width - window_width) // 2
+        pos_y = (screen_height - window_height) // 2
+        
         # Create a new window for comparison
         comparison_window = tk.Toplevel(self.root)
         comparison_window.title("📊 Learning Progress Analysis")
-        comparison_window.geometry("900x600")
+        comparison_window.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
         comparison_window.configure(bg="white")
+        comparison_window.resizable(True, True)
+        comparison_window.minsize(600, 400)  # Set minimum size
         
-        # Main frame
+        # Configure window for responsive layout
+        comparison_window.columnconfigure(0, weight=1)
+        comparison_window.rowconfigure(0, weight=1)
+        
+        # Main frame with responsive padding
         main_frame = ttk.Frame(comparison_window, padding="20")
         main_frame.pack(fill="both", expand=True)
         
-        # Title
+        # Configure main frame layout
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)  # Text area expands
+        
+        # Title with responsive font size
+        title_font_size = max(14, min(18, int(screen_width / 100)))
         title_label = ttk.Label(main_frame, text="📊 Reinforcement Learning Progress", 
-                               font=("Arial", 16, "bold"))
-        title_label.pack(pady=(0, 20))
+                               font=("Arial", title_font_size, "bold"))
+        title_label.grid(row=0, column=0, pady=(0, 20), sticky=(tk.W, tk.E))
         
-        # Create text widget with scrollbar
+        # Create text widget with scrollbar (responsive sizing)
         text_frame = ttk.Frame(main_frame)
-        text_frame.pack(fill="both", expand=True)
+        text_frame.grid(row=1, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+        text_frame.columnconfigure(0, weight=1)
+        text_frame.rowconfigure(0, weight=1)
         
-        analysis_text = tk.Text(text_frame, font=("Consolas", 11), wrap=tk.WORD, 
+        # Calculate responsive font size for analysis text
+        text_font_size = max(9, min(12, int(screen_width / 150)))
+        
+        analysis_text = tk.Text(text_frame, font=("Consolas", text_font_size), wrap=tk.WORD, 
                                bg="#f8f9fa", relief="solid", borderwidth=1)
         scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=analysis_text.yview)
         analysis_text.configure(yscrollcommand=scrollbar.set)
         
-        analysis_text.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        analysis_text.grid(row=0, column=0, sticky=(tk.N, tk.S, tk.E, tk.W))
+        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
         # Generate analysis content
         self._show_detailed_analysis(analysis_text)
         
-        # Button frame
+        # Button frame with responsive layout
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill="x", pady=(15, 0))
+        button_frame.grid(row=2, column=0, pady=(15, 0), sticky=(tk.W, tk.E))
+        button_frame.columnconfigure(1, weight=1)  # Space between buttons
+        
+        # Calculate responsive button font size
+        button_font_size = max(9, min(12, int(screen_width / 140)))
         
         # Export button
         ttk.Button(button_frame, text="📄 Export Analysis", 
-                  command=lambda: self._export_learning_analysis()).pack(side="left")
+                  command=lambda: self._export_learning_analysis()).grid(row=0, column=0, sticky=tk.W)
         
         # Close button
         ttk.Button(button_frame, text="✖ Close", 
-                  command=comparison_window.destroy).pack(side="right")
+                  command=comparison_window.destroy).grid(row=0, column=2, sticky=tk.E)
         
         # Make text read-only
         analysis_text.config(state=tk.DISABLED)
+        
+        print(f"📊 Learning Analysis Window:")
+        print(f"   Window size: {window_width}x{window_height} ({window_width/screen_width:.1%}x{window_height/screen_height:.1%})")
+        print(f"   Position: +{pos_x}+{pos_y} (centered)")
+        print(f"   Text font size: {text_font_size}")
+        print(f"   Title font size: {title_font_size}")
     
     def _show_detailed_analysis(self, text_widget):
         """Show detailed learning analysis in text format."""
